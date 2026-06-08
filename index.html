@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fluxo de Caixa - Atelier</title>
+    <title>Fluxo de Caixa</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <style>
@@ -22,40 +22,56 @@
 <div class="container">
     <h3 class="text-center mb-3"><i class="bi bi-cash-stack"></i> Controle de Caixa</h3>
 
-    <!-- Navegação de Meses -->
-    <div class="row mb-3 align-items-center">
-        <div class="col-4">
-            <button onclick="mudarMes(-1)" class="btn btn-outline-primary btn-sm w-100">◀ Anterior</button>
-        </div>
-        <div class="col-4 text-center fw-bold fs-5" id="tituloMes"></div>
-        <div class="col-4">
-            <button onclick="mudarMes(1)" class="btn btn-outline-primary btn-sm w-100">Próximo ▶</button>
+    <!-- Status Firebase -->
+    <div class="alert alert-secondary py-1 px-2 mb-3" id="statusFirebase">
+        <small><i class="bi bi-cloud"></i> Conectando...</small>
+    </div>
+
+    <!-- Filtro de Visualização -->
+    <div class="row mb-3">
+        <div class="col-12 text-center">
+            <div class="btn-group" role="group">
+                <button onclick="setarVisualizacao('dia')" id="btn-dia" class="btn btn-outline-primary btn-sm">📅 Dia</button>
+                <button onclick="setarVisualizacao('mes')" id="btn-mes" class="btn btn-outline-primary btn-sm active">📆 Mês</button>
+                <button onclick="setarVisualizacao('ano')" id="btn-ano" class="btn btn-outline-primary btn-sm">📊 Ano</button>
+            </div>
         </div>
     </div>
 
-    <!-- KPI's do Mês -->
+    <!-- Navegação -->
+    <div class="row mb-3 align-items-center">
+        <div class="col-4">
+            <button onclick="navegar(-1)" class="btn btn-outline-primary btn-sm w-100">◀ Anterior</button>
+        </div>
+        <div class="col-4 text-center fw-bold fs-5" id="tituloPeriodo"></div>
+        <div class="col-4">
+            <button onclick="navegar(1)" class="btn btn-outline-primary btn-sm w-100">Próximo ▶</button>
+        </div>
+    </div>
+
+    <!-- KPI's -->
     <div class="row mb-3 g-2">
         <div class="col-4">
             <div class="kpi-card kpi-entrada">
                 <small>ENTRADAS</small>
-                <h5 id="entradasMes">R$ 0,00</h5>
+                <h5 id="entradasPeriodo">R$ 0,00</h5>
             </div>
         </div>
         <div class="col-4">
             <div class="kpi-card kpi-saida">
                 <small>SAÍDAS</small>
-                <h5 id="saidasMes">R$ 0,00</h5>
+                <h5 id="saidasPeriodo">R$ 0,00</h5>
             </div>
         </div>
         <div class="col-4">
             <div class="kpi-card kpi-saldo">
                 <small>SALDO</small>
-                <h5 id="saldoMes">R$ 0,00</h5>
+                <h5 id="saldoPeriodo">R$ 0,00</h5>
             </div>
         </div>
     </div>
 
-    <!-- KPI's de Hoje -->
+    <!-- Hoje -->
     <div class="alert alert-light border mb-3">
         <div class="row text-center">
             <div class="col-4"><strong>HOJE</strong></div>
@@ -93,7 +109,7 @@
         <table class="table table-sm table-hover">
             <thead class="table-light">
                 <tr>
-                    <th>Data / Hora</th>
+                    <th>Data/Hora</th>
                     <th>Tipo</th>
                     <th>Descrição</th>
                     <th>Valor</th>
@@ -106,176 +122,243 @@
 
     <!-- Mensagem -->
     <div class="alert alert-info mt-3 mb-0">
-        <small>💾 Dados salvos automaticamente no navegador</small>
+        <small id="msgStatus">Aguardando dados...</small>
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 
 <script>
-    // ========== BANCO DE DADOS LOCAL ==========
-    const CHAVE = 'atelier_caixa';
-    
-    let mesAtual = new Date().getMonth();
-    let anoAtual = new Date().getFullYear();
+    // =====================================================
+    // ⚠️ CONFIGURAÇÃO DO FIREBASE - PREENCHA OS DADOS ⚠️
+    // =====================================================
+   const firebaseConfig = {
+  apiKey: "AIzaSyDf0nUq26WQr3-NCu7d6lJNzczrOXVMz-M",
+  authDomain: "fluxo-fdc89.firebaseapp.com",
+  projectId: "fluxo-fdc89",
+  storageBucket: "fluxo-fdc89.firebasestorage.app",
+  messagingSenderId: "695652693338",
+  appId: "1:695652693338:web:0b5dcb218f543150d72f63",
+  measurementId: "G-6EF9MEZRNF"
+    };
+
+    // Inicializa Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // ID único do usuário
+    let userId = localStorage.getItem('atelier_user_id');
+    if (!userId) {
+        userId = 'user_' + Date.now();
+        localStorage.setItem('atelier_user_id', userId);
+    }
+
+    // Referência Firestore
+    const userRef = db.collection('usuarios').doc(userId).collection('movimentacoes');
+
+    // Variáveis
+    let visualizacao = 'mes';
+    let dataNav = new Date();
+    let mesNav = dataNav.getMonth();
+    let anoNav = dataNav.getFullYear();
+    let diaNav = dataNav.getDate();
     let movimentacoes = [];
+    let unsubscribe = null;
 
-    const categoriasEntrada = ['servico', 'produto', 'outros'];
-    const categoriasSaida = ['material', 'luz', 'internet', 'aluguel', 'funcionario', 'outros'];
+    const catsEntrada = ['servico', 'produto', 'outros'];
+    const catsSaida = ['material', 'luz', 'internet', 'aluguel', 'funcionario', 'outros'];
 
-    // Carrega dados ao iniciar
-    function init() {
-        const dados = localStorage.getItem(CHAVE);
-        if (dados) {
-            movimentacoes = JSON.parse(dados);
-        }
+    // Inicializar
+    async function init() {
         atualizarCategorias();
+        await carregarDados();
         renderizar();
     }
 
-    // Salva no localStorage
-    function salvarDados() {
-        localStorage.setItem(CHAVE, JSON.stringify(movimentacoes));
+    // Carregar dados do Firebase
+    async function carregarDados() {
+        try {
+            if (unsubscribe) unsubscribe();
+
+            unsubscribe = userRef.orderBy('data', 'desc').onSnapshot({
+                next: (snapshot) => {
+                    movimentacoes = [];
+                    snapshot.forEach((doc) => {
+                        movimentacoes.push({ id: doc.id, ...doc.data() });
+                    });
+                    renderizar();
+                    atualizarStatus('✅ Sincronizado', 'success');
+                },
+                error: (error) => {
+                    console.error('Erro:', error);
+                    atualizarStatus('❌ Erro: ' + error.message, 'danger');
+                }
+            });
+        } catch (e) {
+            console.error('Erro:', e);
+            atualizarStatus('❌ Erro: ' + e.message, 'danger');
+        }
     }
 
-    // Atualiza categorias
+    function atualizarStatus(msg, tipo) {
+        document.getElementById('statusFirebase').className = 'alert alert-' + tipo + ' py-1 px-2 mb-3';
+        document.getElementById('statusFirebase').innerHTML = '<small><i class="bi bi-cloud-fill"></i> ' + msg + '</small>';
+    }
+
     function atualizarCategorias() {
-        const select = document.getElementById('categoria');
-        const cats = document.getElementById('tipo').value === 'entrada' ? categoriasEntrada : categoriasSaida;
-        select.innerHTML = cats.map(c => `<option value="${c}">${c.charAt(0).toUpperCase() + c.slice(1)}</option>`).join('');
+        const sel = document.getElementById('categoria');
+        const cats = document.getElementById('tipo').value === 'entrada' ? catsEntrada : catsSaida;
+        sel.innerHTML = cats.map(c => '<option value="' + c + '">' + c.charAt(0).toUpperCase() + c.slice(1) + '</option>').join('');
     }
 
-    // Navegar meses
-    function mudarMes(delta) {
-        mesAtual += delta;
-        if (mesAtual > 11) { mesAtual = 0; anoAtual++; }
-        if (mesAtual < 0) { mesAtual = 11; anoAtual--; }
+    function setarVisualizacao(tipo) {
+        visualizacao = tipo;
+        document.querySelectorAll('.btn-group .btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('btn-' + tipo).classList.add('active');
+        dataNav = new Date();
+        mesNav = dataNav.getMonth();
+        anoNav = dataNav.getFullYear();
+        diaNav = dataNav.getDate();
         renderizar();
     }
 
-    // Formatar dinheiro
+    function navegar(delta) {
+        if (visualizacao === 'mes') {
+            mesNav += delta;
+            if (mesNav > 11) { mesNav = 0; anoNav++; }
+            if (mesNav < 0) { mesNav = 11; anoNav--; }
+        } else if (visualizacao === 'ano') {
+            anoNav += delta;
+        } else {
+            dataNav.setDate(dataNav.getDate() + delta);
+            diaNav = dataNav.getDate();
+            mesNav = dataNav.getMonth();
+            anoNav = dataNav.getFullYear();
+        }
+        renderizar();
+    }
+
     function formatar(valor) {
         return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     }
 
-    // Format ar data e hora
-    function formatarDataHora(dataISO) {
+    function formatarData(dataISO) {
         const d = new Date(dataISO);
-        const dia = String(d.getDate()).padStart(2, '0');
-        const mes = String(d.getMonth() + 1).padStart(2, '0');
-        const ano = d.getFullYear();
-        const hora = String(d.getHours()).padStart(2, '0');
-        const minuto = String(d.getMinutes()).padStart(2, '0');
-        return `${dia}/${mes}/${ano} ${hora}:${minuto}`;
+        return String(d.getDate()).padStart(2, '0') + '/' + 
+               String(d.getMonth() + 1).padStart(2, '0') + '/' + 
+               d.getFullYear() + ' ' + 
+               String(d.getHours()).padStart(2, '0') + ':' + 
+               String(d.getMinutes()).padStart(2, '0');
     }
 
-    // Get key do mês
-    function getKeyMes(dataISO) {
+    function keyMes(dataISO) {
         const d = new Date(dataISO);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
     }
 
-    // Get key do dia
-    function getKeyDia(dataISO) {
+    function keyDia(dataISO) {
         return dataISO.split('T')[0];
     }
 
-    // Salvar nova movimentação
-    function salvar() {
-        const tipo = document.getElementById('tipo').value;
-        const descricao = document.getElementById('descricao').value.trim();
-        const valor = parseFloat(document.getElementById('valor').value);
-        const categoria = document.getElementById('categoria').value;
+    function keyAno(dataISO) {
+        return new Date(dataISO).getFullYear().toString();
+    }
 
-        if (!descricao || isNaN(valor) || valor <= 0) {
-            alert('Preencha descrição e valor!');
+    async function salvar() {
+        const tipo = document.getElementById('tipo').value;
+        const desc = document.getElementById('descricao').value.trim();
+        const valor = parseFloat(document.getElementById('valor').value);
+        const cat = document.getElementById('categoria').value;
+
+        if (!desc || isNaN(valor) || valor <= 0) {
+            alert('Preencha descrição e valor válido!');
             return;
         }
 
-        const novaMov = {
-            id: Date.now(),
-            tipo: tipo,
-            descricao: descricao,
-            valor: valor,
-            categoria: categoria,
-            data: new Date().toISOString()
-        };
+        try {
+            await userRef.add({
+                tipo: tipo,
+                descricao: desc,
+                valor: valor,
+                categoria: cat,
+                data: new Date().toISOString(),
+                userId: userId
+            });
 
-        movimentacoes.unshift(novaMov);
-        salvarDados();
-        renderizar();
-
-        // Limpa campos
-        document.getElementById('descricao').value = '';
-        document.getElementById('valor').value = '';
-        document.getElementById('descricao').focus();
+            document.getElementById('descricao').value = '';
+            document.getElementById('valor').value = '';
+            document.getElementById('descricao').focus();
+            document.getElementById('msgStatus').textContent = '💾 Salvo em ' + new Date().toLocaleTimeString();
+        } catch (e) {
+            alert('Erro ao salvar: ' + e.message);
+        }
     }
 
-    // Excluir
-    function excluir(id) {
-        if (!confirm('Excluir esta movimentação?')) return;
-        movimentacoes = movimentacoes.filter(m => m.id !== id);
-        salvarDados();
-        renderizar();
+    async function excluir(id) {
+        if (!confirm('Excluir?')) return;
+        try {
+            await userRef.doc(id).delete();
+        } catch (e) {
+            alert('Erro: ' + e.message);
+        }
     }
 
-    // Renderizarinterface
     function renderizar() {
         const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-        const keyMes = `${anoAtual}-${String(mesAtual + 1).padStart(2, '0')}`;
         
-        document.getElementById('tituloMes').textContent = `${meses[mesAtual]} / ${anoAtual}`;
+        let titulo = '';
+        let key = '';
+        
+        if (visualizacao === 'mes') {
+            key = anoNav + '-' + String(mesNav + 1).padStart(2, '0');
+            titulo = meses[mesNav] + ' / ' + anoNav;
+        } else if (visualizacao === 'ano') {
+            key = anoNav.toString();
+            titulo = 'Ano de ' + anoNav;
+        } else {
+            key = anoNav + '-' + String(mesNav + 1).padStart(2, '0') + '-' + String(diaNav).padStart(2, '0');
+            titulo = String(diaNav).padStart(2, '0') + '/' + String(mesNav + 1).padStart(2, '0') + '/' + anoNav;
+        }
+        
+        document.getElementById('tituloPeriodo').textContent = titulo;
 
         const hoje = new Date().toISOString().split('T')[0];
 
-        // Filtra movimentações do mês
-        const movMes = movimentacoes.filter(m => getKeyMes(m.data) === keyMes);
-        const movHoje = movimentacoes.filter(m => getKeyDia(m.data) === hoje);
-
-        // Calcula totais do MÊS
-        let entMes = 0, saiMes = 0;
-        movMes.forEach(m => {
-            if (m.tipo === 'entrada') entMes += m.valor;
-            else saiMes += m.valor;
+        let periodo = movimentacoes.filter(m => {
+            if (visualizacao === 'mes') return keyMes(m.data) === key;
+            if (visualizacao === 'ano') return keyAno(m.data) === key;
+            return keyDia(m.data) === key;
         });
 
-        // Calcula totais do DIA
-        let entDia = 0, saiDia = 0;
-        movHoje.forEach(m => {
-            if (m.tipo === 'entrada') entDia += m.valor;
-            else saiDia += m.valor;
-        });
+        let dayToday = movimentacoes.filter(m => keyDia(m.data) === hoje);
 
-        // Atualiza KPIs
-        document.getElementById('entradasMes').textContent = formatar(entMes);
-        document.getElementById('saidasMes').textContent = formatar(saiMes);
-        document.getElementById('saldoMes').textContent = formatar(entMes - saiMes);
-        document.getElementById('entradasDia').textContent = '+ ' + formatar(entDia);
-        document.getElementById('saidasDia').textContent = '- ' + formatar(saiDia);
+        let entP = 0, saiP = 0;
+        periodo.forEach(m => m.tipo === 'entrada' ? entP += m.valor : saiP += m.valor);
 
-        // Renderiza lista
+        let entD = 0, saiD = 0;
+        dayToday.forEach(m => m.tipo === 'entrada' ? entD += m.valor : saiD += m.valor);
+
+        document.getElementById('entradasPeriodo').textContent = formatar(entP);
+        document.getElementById('saidasPeriodo').textContent = formatar(saiP);
+        document.getElementById('saldoPeriodo').textContent = formatar(entP - saiP);
+        document.getElementById('entradasDia').textContent = '+ ' + formatar(entD);
+        document.getElementById('saidasDia').textContent = '- ' + formatar(saiD);
+
         const lista = document.getElementById('lista');
-        lista.innerHTML = movMes
-            .sort((a, b) => new Date(b.data) - new Date(a.data))
-            .map(m => {
-                const badge = m.tipo === 'entrada' 
-                    ? '<span class="badge bg-success">ENT</span>' 
-                    : '<span class="badge bg-danger">SAI</span>';
-                const valorStr = m.tipo === 'entrada' 
-                    ? `<span class="positivo">+${formatar(m.valor)}</span>` 
-                    : `<span class="negativo">-${formatar(m.valor)}</span>`;
-                
-                return `<tr>
-                    <td><small>${formatarDataHora(m.data)}</small></td>
-                    <td>${badge}</td>
-                    <td>${m.descricao}</td>
-                    <td>${valorStr}</td>
-                    <td><button onclick="excluir(${m.id})" class="btn btn-sm btn-outline-danger">×</button></td>
-                </tr>`;
+        if (periodo.length === 0) {
+            lista.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Nenhuma movimentação</td></tr>';
+        } else {
+            lista.innerHTML = periodo.map(m => {
+                const badge = m.tipo === 'entrada' ? '<span class="badge bg-success">ENT</span>' : '<span class="badge bg-danger">SAI</span>';
+                const val = m.tipo === 'entrada' ? '<span class="positivo">+' + formatar(m.valor) + '</span>' : '<span class="negativo">-' + formatar(m.valor) + '</span>';
+                return '<tr><td><small>' + formatarData(m.data) + '</small></td><td>' + badge + '</td><td>' + m.descricao + '</td><td>' + val + '</td><td><button onclick="excluir(\'' + m.id + '\')" class="btn btn-sm btn-outline-danger">×</button></td></tr>';
             }).join('');
+        }
     }
 
-    // Inicia
+    // Iniciar
     init();
 </script>
 
